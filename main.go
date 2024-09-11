@@ -56,7 +56,12 @@ func runClient(ctx context.Context, wg *sync.WaitGroup, baseLogger *slog.Logger,
 			logger.Info("Got lease", "addr", lease.FixedAddress, "ttl", time.Until(lease.Expire))
 		},
 		OnExpire: func(lease *dhclient.Lease) {
-			logger.Info("Lease expired, re-requesting")
+			if lease == nil {
+				logger.Warn("Acquiring lease failed, will retry")
+				return
+			}
+
+			logger.Info("Lease expired", "lease", lease)
 		},
 	}
 
