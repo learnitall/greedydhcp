@@ -14,10 +14,6 @@ import (
 	"github.com/google/gopacket/layers"
 )
 
-const (
-	TargetAddr = "192.168.0.223"
-)
-
 func getInterface() (*net.Interface, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -60,6 +56,14 @@ func main() {
 
 	logger.Info("Using interface", "iface", iface.Name)
 
+	targetAddr := os.Getenv("TARGET_ADDR")
+	if targetAddr == "" {
+		logger.Error("TARGET_ADDR is not set")
+		os.Exit(1)
+	}
+
+	logger.Info("Will continually request a lease for target addr", "target", targetAddr)
+
 	client := dhclient.Client{
 		Iface:  iface,
 		Logger: logger,
@@ -76,9 +80,9 @@ func main() {
 		client.AddParamRequest(layers.DHCPOpt(param))
 	}
 
-	logger.Info("Adding option to request ip", "ip", TargetAddr)
+	logger.Info("Adding option to request ip", "ip", targetAddr)
 	client.AddOption(
-		layers.DHCPOptRequestIP, net.ParseIP(TargetAddr).To4(),
+		layers.DHCPOptRequestIP, net.ParseIP(targetAddr).To4(),
 	)
 
 	logger.Info("Starting dhcp client")

@@ -1,7 +1,7 @@
 # greedydhcp
 
 Run a DHCP client that continually requests the same address.
-Edit the `TargetAddr` variable in `main.go` to the desired request
+Edit the `TARGET_ADDR` environment variable to the desired address
 and run on the host.
 
 When a lease for the target address is acquired, it will be held
