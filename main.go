@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,6 +16,36 @@ import (
 
 	"github.com/digineo/go-dhclient"
 	"github.com/google/gopacket/layers"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+	dhcpAcquiredLeasesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "dhcp_acquired_leases_total",
+			Help: "The number of times a lease was acquired, labeled by IP",
+		}, []string{"ip"},
+	)
+	dhcpExpiredLeasesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "dhcp_expired_leases_total",
+			Help: "The number of times a lease has expired, labeled by IP",
+		}, []string{"ip"},
+	)
+	dhcpFailedLeasesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "dhcp_failed_leases_total",
+			Help: "The number of times a lease failed to be acquired, labeled by IP",
+		}, []string{"ip"},
+	)
+	dhcpLeaseExpiryTimestampSeconds = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "dhcp_lease_expiry_timestamp_seconds",
+			Help: "A timestamp representing the expiry time for a lease as a unix timestamp, labeled by IP",
+		}, []string{"ip"},
+	)
 )
 
 func getInterface() (*net.Interface, error) {
@@ -46,6 +77,15 @@ func getInterface() (*net.Interface, error) {
 func runClient(ctx context.Context, wg *sync.WaitGroup, baseLogger *slog.Logger, iface *net.Interface, targetAddr string) {
 	defer wg.Done()
 
+	myAcquiredMetric := dhcpAcquiredLeasesTotal.WithLabelValues(targetAddr)
+	myAcquiredMetric.Add(0)
+	myExpiryMetric := dhcpLeaseExpiryTimestampSeconds.WithLabelValues(targetAddr)
+	myExpiryMetric.Set(0)
+	myFailedMetric := dhcpFailedLeasesTotal.WithLabelValues(targetAddr)
+	myFailedMetric.Add(0)
+	myExpiredMetric := dhcpExpiredLeasesTotal.WithLabelValues(targetAddr)
+	myExpiredMetric.Add(0)
+
 	logger := baseLogger.With("target", targetAddr)
 	logger.Info("Will continually request a lease for target addr")
 
@@ -54,14 +94,18 @@ func runClient(ctx context.Context, wg *sync.WaitGroup, baseLogger *slog.Logger,
 		Logger: logger,
 		OnBound: func(lease *dhclient.Lease) {
 			logger.Info("Got lease", "addr", lease.FixedAddress, "ttl", time.Until(lease.Expire))
+			myAcquiredMetric.Inc()
+			myExpiryMetric.Set(float64(lease.Expire.Unix()))
 		},
 		OnExpire: func(lease *dhclient.Lease) {
 			if lease == nil {
 				logger.Warn("Acquiring lease failed, will retry")
+				myFailedMetric.Inc()
 				return
 			}
 
-			logger.Info("Lease expired", "lease", lease)
+			logger.Info("Lease expired", "addr", lease.FixedAddress, "lease", lease)
+			myExpiredMetric.Inc()
 		},
 	}
 
@@ -126,11 +170,24 @@ func main() {
 		go runClient(ctx, wg, logger, iface, targetAddr)
 	}
 
+	metricChan := make(chan struct{})
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		if err := http.ListenAndServe("127.0.0.1:1337", nil); err != nil {
+			logger.Error("Unexpected error while running metrics server", "err", err)
+			close(metricChan)
+			return
+		}
+	}()
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
-	for {
-		sig := <-c
+	select {
+	case sig := <-c:
 		logger.Info("Received signal, exiting", "signal", sig)
+		break
+	case <-metricChan:
+		logger.Error("Metric server failed, exiting")
 		break
 	}
 
