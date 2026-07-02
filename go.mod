@@ -1,6 +1,6 @@
 module github.com/learnitall/greedy-dhcp
 
-go 1.21.13
+go 1.25.0
 
 require (
 	github.com/digineo/go-dhclient v1.0.3-0.20240605160009-c8b6d39be079
@@ -19,8 +19,8 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	golang.org/x/net v0.26.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.22.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
